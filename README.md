@@ -2,7 +2,6 @@
 
 > [!IMPORTANT]
 > This module requires **AWS Control Tower v4.0 or higher**.
-> Set `control_tower_version` to `4.0` or above.
 
 Terraform module that sets up the core of an AWS Control Tower landing zone:
 

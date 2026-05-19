@@ -1,3 +1,7 @@
+provider "aws" {
+  region = "eu-central-1"
+}
+
 module "organization" {
   source  = "schubergphilis/mcaf-organization/aws"
   version = "~> 0.3"
@@ -6,12 +10,8 @@ module "organization" {
 module "control_tower" {
   source = "../../"
 
-  audit_account = {
-    email = "int+core-audit@example.com"
-  }
-  logging_account = {
-    email = "int+core-logging@example.com"
-  }
+  audit_account   = { email = "int+core-audit@example.com" }
+  logging_account = { email = "int+core-logging@example.com" }
 
   depends_on = [module.organization]
 }

@@ -90,7 +90,7 @@ data "aws_iam_policy_document" "control_tower_kms" {
 
 
   dynamic "statement" {
-    for_each = length(var.kms_key.iam_arns_decrypt) > 0 ? [true] : []
+    for_each = length(var.kms_key.iam_arns_decrypt) > 0 ? { create = true } : {}
 
     content {
       sid = "Decrypt Permissions"
