@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/schubergphilis-ep/terraform-aws-mcaf-control-tower/compare/v1.0.0...v1.0.1) (2026-07-07)
+
+
+### 🐛 Fixes
+
+* migrate MCAF module sources ([#4](https://github.com/schubergphilis-ep/terraform-aws-mcaf-control-tower/issues/4)) ([874661f](https://github.com/schubergphilis-ep/terraform-aws-mcaf-control-tower/commit/874661f54ce540940d9a99a4ad4f73eec28d271b))
+
 ## 1.0.0 (2026-05-19)
 
 
