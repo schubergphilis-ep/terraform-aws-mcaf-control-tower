@@ -5,7 +5,7 @@
 
 
 module "control_tower_admin" {
-  source  = "schubergphilis/mcaf-role/aws"
+  source  = "schubergphilis-ep/mcaf-role/aws"
   version = "~> 0.5.3"
 
   name                  = "AWSControlTowerAdmin"
@@ -47,7 +47,7 @@ data "aws_iam_policy_document" "admin" {
 
 # AWSControlTowerCloudTrailRole
 module "control_tower_cloudtrail" {
-  source  = "schubergphilis/mcaf-role/aws"
+  source  = "schubergphilis-ep/mcaf-role/aws"
   version = "~> 0.5.3"
 
   name                  = "AWSControlTowerCloudTrail"
@@ -61,7 +61,7 @@ module "control_tower_cloudtrail" {
 
 # AWSControlTowerStackSetRole
 module "control_tower_stackset" {
-  source  = "schubergphilis/mcaf-role/aws"
+  source  = "schubergphilis-ep/mcaf-role/aws"
   version = "~> 0.5.3"
 
   name                  = "AWSControlTowerStackSet"

@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 module "organization" {
-  source  = "schubergphilis/mcaf-organization/aws"
+  source  = "schubergphilis-ep/mcaf-organization/aws"
   version = "~> 0.3"
 }
 
