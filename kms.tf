@@ -10,7 +10,7 @@ locals {
 module "control_tower_kms" {
   count = local.create_kms_key ? 1 : 0
 
-  source  = "schubergphilis/mcaf-kms/aws"
+  source  = "schubergphilis-ep/mcaf-kms/aws"
   version = "~> 1.0.0"
 
   name                    = "control-tower-kms"
