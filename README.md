@@ -36,10 +36,10 @@ An **AWS Organization must already exist** in the management account or be deplo
 
 | Name | Source | Version |
 |------|--------|---------|
-| <a name="module_control_tower_admin"></a> [control\_tower\_admin](#module\_control\_tower\_admin) | schubergphilis/mcaf-role/aws | ~> 0.5.3 |
-| <a name="module_control_tower_cloudtrail"></a> [control\_tower\_cloudtrail](#module\_control\_tower\_cloudtrail) | schubergphilis/mcaf-role/aws | ~> 0.5.3 |
-| <a name="module_control_tower_kms"></a> [control\_tower\_kms](#module\_control\_tower\_kms) | schubergphilis/mcaf-kms/aws | ~> 1.0.0 |
-| <a name="module_control_tower_stackset"></a> [control\_tower\_stackset](#module\_control\_tower\_stackset) | schubergphilis/mcaf-role/aws | ~> 0.5.3 |
+| <a name="module_control_tower_admin"></a> [control\_tower\_admin](#module\_control\_tower\_admin) | schubergphilis-ep/mcaf-role/aws | ~> 0.5.3 |
+| <a name="module_control_tower_cloudtrail"></a> [control\_tower\_cloudtrail](#module\_control\_tower\_cloudtrail) | schubergphilis-ep/mcaf-role/aws | ~> 0.5.3 |
+| <a name="module_control_tower_kms"></a> [control\_tower\_kms](#module\_control\_tower\_kms) | schubergphilis-ep/mcaf-kms/aws | ~> 1.0.0 |
+| <a name="module_control_tower_stackset"></a> [control\_tower\_stackset](#module\_control\_tower\_stackset) | schubergphilis-ep/mcaf-role/aws | ~> 0.5.3 |
 
 ## Resources
 
