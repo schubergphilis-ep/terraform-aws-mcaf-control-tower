@@ -14,6 +14,9 @@ For additional features (Security Hub, GuardDuty, Config, SSO permission sets, e
 
 To migrate an existing console-managed Control Tower setup into this module, see [MIGRATION.md](./MIGRATION.md).
 
+> [!NOTE]
+> After a landing zone upgrade or configuration change, enrolled accounts show **"Update available"** and must be updated. The [`scripts/`](./scripts/) directory has a helper to do this in batches — see [scripts/README.md](./scripts/README.md).
+
 ## Prerequisites
 
 An **AWS Organization must already exist** in the management account or be deployed together with this module. Create (or import) it with the [`schubergphilis/mcaf-organization/aws`](https://registry.terraform.io/modules/schubergphilis/mcaf-organization/aws/latest) module. Control Tower cannot create the organization, and the audit/logging accounts this module creates must live inside it.
