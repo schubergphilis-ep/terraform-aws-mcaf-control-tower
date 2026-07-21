@@ -1,0 +1,22 @@
+# Runs the unit tests for the helper scripts in scripts/.
+
+name: Test scripts
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+
+      - name: Run unit tests
+        run: uv run scripts/test_update_control_tower_accounts.py -v
