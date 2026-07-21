@@ -1,8 +1,15 @@
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "boto3>=1.34",
+# ]
+# ///
 """Tests for update_control_tower_accounts.py.
 
 All AWS calls are stubbed, so the tests run offline and never touch an account.
 
-Run them with either:
+Run them with any of:
+    uv run scripts/test_update_control_tower_accounts.py
     python3 -m unittest discover -s scripts -v
     pytest scripts/
 """
