@@ -63,8 +63,8 @@ ACCOUNT_PARAM_KEYS = [
 # AWS allows at most 5 concurrent Account Factory updates.
 MAX_BATCH_SIZE = 5
 
-# Accounts no longer in the organization (stale Account Factory records) are
-# written here after every run. The file is overwritten each time.
+# Where a bare --removed-csv writes stale Account Factory records. Writing the
+# file is opt-in: without the flag a run never touches the filesystem.
 REMOVED_ACCOUNTS_CSV = "control_tower_removed_accounts.csv"
 
 # Provisioned product states that accept an update. Anything else
@@ -125,6 +125,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--param-key", action="append", dest="param_keys", metavar="KEY",
                    help="Override which provisioning parameters are re-sent (with "
                         "their current values). Repeatable.")
+    p.add_argument("--removed-csv", nargs="?", const=REMOVED_ACCOUNTS_CSV,
+                   default=None, metavar="PATH",
+                   help="Also write every stale Account Factory record (account no "
+                        "longer in the organization) to this CSV file, overwriting "
+                        f"it. Bare --removed-csv writes {REMOVED_ACCOUNTS_CSV}; "
+                        "omit the flag and no file is written.")
     p.add_argument("--poll-interval", type=int, default=30,
                    help="Seconds between status polls while a batch is updating.")
     p.add_argument("--batch-timeout", type=int, default=3600,
@@ -301,22 +307,39 @@ def resolve_account_details(catalog, cloudformation, org, sso: SsoDirectory,
         account.parameters = gather_parameters(cloudformation, org, sso, account, outputs)
 
 
-def write_removed_accounts_csv(accounts: list[Account], path: Path) -> int:
-    """Write the id and name of every stale/removed account to a CSV file.
-
-    "Removed" accounts are those whose Account Factory record is stale because
-    the account is no longer in the organization (Organizations answers a
-    ChildNotFoundException when its OU is looked up). The file is overwritten
-    on every run; a run with no removed accounts leaves just the header row.
-    Returns the number of accounts written.
-    """
-    removed = [account for account in accounts if account.removed]
-    with path.open("w", newline="") as handle:
+def write_removed_accounts_csv(accounts: list[Account], path: Path) -> None:
+    """Write the id and name of each given account to `path`, overwriting it."""
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["AccountId", "AccountName"])
-        for account in removed:
+        for account in accounts:
             writer.writerow([account.account_id or "", account.name])
-    return len(removed)
+
+
+def report_removed_accounts(accounts: list[Account], csv_path: str | None) -> None:
+    """Report the stale Account Factory records found, optionally to a CSV file.
+
+    "Removed" accounts are those whose record is stale because the account is no
+    longer in the organization (Organizations answers ChildNotFoundException when
+    its OU is looked up). They are already excluded from the update itself, so
+    this is reporting only: without --removed-csv nothing is written to disk, and
+    a failure to write the file never aborts the run.
+    """
+    removed = [account for account in accounts if account.removed]
+    if not removed:
+        return
+    if not csv_path:
+        eprint(f"note: {len(removed)} stale/removed account(s) found; pass "
+               "--removed-csv to write them to a file")
+        return
+
+    path = Path(csv_path)
+    try:
+        write_removed_accounts_csv(removed, path)
+    except OSError as exc:
+        eprint(f"  ! could not write {path}: {exc}")
+        return
+    print(f"Wrote {len(removed)} stale/removed account(s) to {path}")
 
 
 def error_text(exc: Exception) -> str:
@@ -552,9 +575,7 @@ def main(argv: list[str]) -> int:
     accounts = accounts_needing_update(catalog, product_id, artifact_id)
     resolve_account_details(catalog, cloudformation, org, sso, accounts)
 
-    removed_csv = Path(REMOVED_ACCOUNTS_CSV)
-    removed_count = write_removed_accounts_csv(accounts, removed_csv)
-    print(f"Wrote {removed_count} stale/removed account(s) to {removed_csv}")
+    report_removed_accounts(accounts, args.removed_csv)
 
     accounts = select_accounts(accounts, args, param_keys)
     if not accounts:
