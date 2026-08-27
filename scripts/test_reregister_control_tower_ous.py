@@ -458,6 +458,14 @@ class TestDetectCoreOu(unittest.TestCase):
             self.assertIsNone(script.detect_core_ou(FakeOrg(), FakeCT(manifest={})))
         self.assertIn("manifest", "\n".join(logs.output))
 
+    def test_a_manifest_with_null_account_ids_is_not_fatal(self):
+        # .get("accountId", "") returns None when the key is present but null,
+        # so .strip() used to raise AttributeError and abort build_plan().
+        ct = FakeCT(manifest={"securityRoles": {"accountId": None},
+                              "centralizedLogging": {}})
+        with self.assertLogs(script.log, "WARNING"):
+            self.assertIsNone(script.detect_core_ou(FakeOrg(), ct))
+
     def test_returns_none_when_no_ou_holds_both_accounts(self):
         org = FakeOrg(accounts={SECURITY: [SECURITY_ACCOUNT], SANDBOX: [LOG_ARCHIVE_ACCOUNT]})
         with self.assertLogs(script.log, "WARNING"):

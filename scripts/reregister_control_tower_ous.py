@@ -258,8 +258,8 @@ def detect_core_ou(org, ct) -> str | None:
     both the security and centralized-logging accounts named in the manifest.
     """
     manifest = landing_zone_manifest(ct)
-    security = (manifest.get("securityRoles") or {}).get("accountId", "").strip()
-    logging_ = (manifest.get("centralizedLogging") or {}).get("accountId", "").strip()
+    security = str((manifest.get("securityRoles") or {}).get("accountId") or "").strip()
+    logging_ = str((manifest.get("centralizedLogging") or {}).get("accountId") or "").strip()
     mgmt = management_account_id(org)
 
     log.debug(
