@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.12"
 # dependencies = [
 #     "boto3>=1.34",
 # ]
@@ -13,8 +13,6 @@ Run them with any of:
     python3 -m unittest discover -s scripts -v
     pytest scripts/
 """
-
-from __future__ import annotations
 
 import io
 import sys

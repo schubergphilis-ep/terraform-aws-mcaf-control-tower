@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.12"
 # dependencies = [
 #     "boto3>=1.34",
 # ]
@@ -29,8 +29,6 @@ Run it in the Control Tower management account, in the Control Tower home
 region, with Service Catalog / Account Factory admin rights.
 See --help for all options.
 """
-
-from __future__ import annotations
 
 import argparse
 import csv
@@ -227,6 +225,37 @@ def accounts_needing_update(catalog, product_id: str, latest_artifact_id: str) -
             return sorted(accounts, key=lambda a: a.name)
 
 
+class SsoDirectory:
+    """Looks up IAM Identity Center users' first/last names by email."""
+
+    def __init__(self, sso_admin, identitystore):
+        self._sso_admin = sso_admin
+        self._identitystore = identitystore
+        self._store_id: str | None = None
+        self._cache: dict[str, tuple[str, str]] = {}
+
+    def names(self, email: str) -> tuple[str, str]:
+        """Return (first name, last name) for the user, or ("", "") if unknown."""
+        if email not in self._cache:
+            self._cache[email] = self._look_up(email)
+        return self._cache[email]
+
+    def _look_up(self, email: str) -> tuple[str, str]:
+        if self._store_id is None:
+            instances = self._sso_admin.list_instances().get("Instances", [])
+            self._store_id = instances[0]["IdentityStoreId"] if instances else ""
+        if not self._store_id:
+            return "", ""
+        users = self._identitystore.list_users(
+            IdentityStoreId=self._store_id,
+            Filters=[{"AttributePath": "UserName", "AttributeValue": email}],
+        ).get("Users", [])
+        if not users:
+            return "", ""
+        name = users[0].get("Name", {})
+        return name.get("GivenName", ""), name.get("FamilyName", "")
+
+
 def resolve_account_details(catalog, cloudformation, org, sso: SsoDirectory,
                             accounts: list[Account]) -> None:
     """Best effort: look up each account's id, OU ancestry, and current parameters.
@@ -296,37 +325,6 @@ def error_text(exc: Exception) -> str:
     if error.get("Code"):
         return f"{error['Code']}: {error.get('Message', '')}".rstrip(": ")
     return str(exc)
-
-
-class SsoDirectory:
-    """Looks up IAM Identity Center users' first/last names by email."""
-
-    def __init__(self, sso_admin, identitystore):
-        self._sso_admin = sso_admin
-        self._identitystore = identitystore
-        self._store_id: str | None = None
-        self._cache: dict[str, tuple[str, str]] = {}
-
-    def names(self, email: str) -> tuple[str, str]:
-        """Return (first name, last name) for the user, or ("", "") if unknown."""
-        if email not in self._cache:
-            self._cache[email] = self._look_up(email)
-        return self._cache[email]
-
-    def _look_up(self, email: str) -> tuple[str, str]:
-        if self._store_id is None:
-            instances = self._sso_admin.list_instances().get("Instances", [])
-            self._store_id = instances[0]["IdentityStoreId"] if instances else ""
-        if not self._store_id:
-            return "", ""
-        users = self._identitystore.list_users(
-            IdentityStoreId=self._store_id,
-            Filters=[{"AttributePath": "UserName", "AttributeValue": email}],
-        ).get("Users", [])
-        if not users:
-            return "", ""
-        name = users[0].get("Name", {})
-        return name.get("GivenName", ""), name.get("FamilyName", "")
 
 
 def gather_parameters(cloudformation, org, sso: SsoDirectory, account: Account,

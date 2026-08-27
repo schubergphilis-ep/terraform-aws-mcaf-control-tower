@@ -1,6 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "boto3>=1.34",
+# ]
+# ///
 """
-ct_reregister_ous.py
+reregister_control_tower_ous.py
 
 Sequentially reset the enabled AWS Control Tower baseline for every managed OU in
 the organization ("re-registration"), one OU at a time, run from your laptop.
@@ -27,17 +33,15 @@ template (controltower:*Baseline*, organizations:List*/Describe*, etc.).
 Examples
 --------
   # See the plan, change nothing:
-  python ct_reregister_ous.py --region eu-west-1 --profile my-mgmt-sso
+  uv run scripts/reregister_control_tower_ous.py --region eu-west-1 --profile my-mgmt-sso
 
   # Actually reset everything, skipping two OUs:
-  python ct_reregister_ous.py --region eu-west-1 --apply --skip ou-ab12-11111111,ou-ab12-22222222
+  uv run scripts/reregister_control_tower_ous.py --region eu-west-1 --apply --skip ou-ab12-11111111,ou-ab12-22222222
 
   # Reset just one OU (test first!) - by id or by name:
-  python ct_reregister_ous.py --region eu-west-1 --apply --target ou-ab12-33333333
-  python ct_reregister_ous.py --region eu-west-1 --apply --target "Sandbox"
+  uv run scripts/reregister_control_tower_ous.py --region eu-west-1 --apply --target ou-ab12-33333333
+  uv run scripts/reregister_control_tower_ous.py --region eu-west-1 --apply --target "Sandbox"
 """
-
-from __future__ import annotations
 
 import argparse
 import json
@@ -47,7 +51,6 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Iterable
 
 import boto3
 from botocore.config import Config
@@ -365,17 +368,20 @@ def _start_with_conflict_wait(fn, kwargs: dict, label: str, conflict_wait: int, 
             resp = fn(**kwargs)
             return resp.get("operationIdentifier") or ""
         except ClientError as e:
-            if is_conflict_in_progress(e) and attempt < conflict_attempts:
-                log.info(
-                    "  baseline busy (another operation in progress); "
-                    "waiting %ss then retry %d/%d",
-                    conflict_wait,
-                    attempt + 1,
-                    conflict_attempts,
-                )
-                time.sleep(conflict_wait)
-                continue
-            raise
+            if not is_conflict_in_progress(e):
+                raise
+            if attempt >= conflict_attempts:
+                raise OperationFailed(
+                    f"{label} still blocked after {conflict_attempts} attempts: {e}"
+                ) from e
+            log.info(
+                "  baseline busy (another operation in progress); "
+                "waiting %ss then retry %d/%d",
+                conflict_wait,
+                attempt + 1,
+                conflict_attempts,
+            )
+            time.sleep(conflict_wait)
     raise OperationFailed(f"{label} still blocked after {conflict_attempts} attempts")
 
 
