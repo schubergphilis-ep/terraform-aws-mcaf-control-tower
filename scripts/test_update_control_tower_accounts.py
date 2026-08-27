@@ -16,6 +16,7 @@ Run them with any of:
 
 import io
 import sys
+import tempfile
 import unittest
 from argparse import Namespace
 from contextlib import redirect_stderr, redirect_stdout
@@ -125,6 +126,18 @@ class TestParseArgs(unittest.TestCase):
         self.assertEqual(args.exclude_ou, ["Security"])
         self.assertEqual(args.exclude_account, ["sandbox"])
         self.assertEqual(args.param_keys, ["AccountEmail"])
+
+    def test_the_removed_accounts_csv_is_off_by_default(self):
+        # A run without the flag must not touch the filesystem at all.
+        self.assertIsNone(script.parse_args([]).removed_csv)
+
+    def test_a_bare_removed_csv_uses_the_default_filename(self):
+        self.assertEqual(script.parse_args(["--removed-csv"]).removed_csv,
+                         script.REMOVED_ACCOUNTS_CSV)
+
+    def test_removed_csv_accepts_an_explicit_path(self):
+        self.assertEqual(script.parse_args(["--removed-csv", "/tmp/gone.csv"]).removed_csv,
+                         "/tmp/gone.csv")
 
     def test_batch_size_is_clamped_to_the_aws_maximum(self):
         with redirect_stderr(io.StringIO()):
@@ -332,8 +345,85 @@ class TestResolveAccountDetails(unittest.TestCase):
                                            FakeSso(), [acct])
         self.assertEqual(acct.account_id, "329599626798")  # outputs still resolved
         self.assertEqual(acct.ou, "unknown")
+        self.assertTrue(acct.removed)
         self.assertIn("ChildNotFoundException", stderr.getvalue())
         self.assertIn("stale", stderr.getvalue())
+
+    def test_other_ou_lookup_failures_do_not_mark_the_record_stale(self):
+        # Only ChildNotFoundException means the account left the organization;
+        # a permissions problem must not be reported as a removed account.
+        class DeniedOrg(OrgInfo):
+            def list_parents(self, ChildId):
+                raise access_denied("ListParents")
+
+        acct = account("denied")
+        with redirect_stderr(io.StringIO()) as stderr:
+            script.resolve_account_details(self.Catalog(), StackCfn(), DeniedOrg(),
+                                           FakeSso(), [acct])
+        self.assertFalse(acct.removed)
+        self.assertNotIn("stale", stderr.getvalue())
+
+
+class TestReportRemovedAccounts(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    @staticmethod
+    def stale(name: str, account_id: str | None) -> script.Account:
+        return account(name, account_id=account_id, removed=True)
+
+    def report(self, accounts, csv_path=None):
+        """Run the reporter, returning (stdout, stderr)."""
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            script.report_removed_accounts(accounts, csv_path)
+        return out.getvalue(), err.getvalue()
+
+    def test_only_removed_accounts_are_written(self):
+        path = self.dir / "gone.csv"
+        accounts = [self.stale("gone", "111111111111"), account("healthy")]
+        out, _ = self.report(accounts, str(path))
+        self.assertEqual(path.read_text(encoding="utf-8"),
+                         "AccountId,AccountName\n111111111111,gone\n")
+        self.assertIn("1 stale/removed account(s)", out)
+
+    def test_a_missing_account_id_leaves_the_column_empty(self):
+        path = self.dir / "gone.csv"
+        self.report([self.stale("nameless", None)], str(path))
+        self.assertEqual(path.read_text(encoding="utf-8"),
+                         "AccountId,AccountName\n,nameless\n")
+
+    def test_the_file_is_overwritten_not_appended(self):
+        path = self.dir / "gone.csv"
+        self.report([self.stale("first", "111111111111")], str(path))
+        self.report([self.stale("second", "222222222222")], str(path))
+        self.assertNotIn("first", path.read_text(encoding="utf-8"))
+
+    def test_non_ascii_account_names_survive_any_locale(self):
+        path = self.dir / "gone.csv"
+        self.report([self.stale("køln-sandbox", "111111111111")], str(path))
+        self.assertIn("køln-sandbox", path.read_text(encoding="utf-8"))
+
+    def test_without_the_flag_nothing_is_written_but_the_count_is_noted(self):
+        # The dry run is advertised as changing nothing, so the file is opt-in.
+        _, err = self.report([self.stale("gone", "111111111111")])
+        self.assertIn("--removed-csv", err)
+        self.assertEqual(list(self.dir.iterdir()), [])
+
+    def test_a_clean_organization_reports_nothing_at_all(self):
+        out, err = self.report([account("healthy")], str(self.dir / "gone.csv"))
+        self.assertEqual((out, err), ("", ""))
+        self.assertEqual(list(self.dir.iterdir()), [])  # no header-only file
+
+    def test_an_unwritable_path_warns_instead_of_aborting_the_run(self):
+        # The reporting is incidental; losing it must not throw away a run that
+        # has already done all of its discovery work.
+        path = self.dir / "nope" / "gone.csv"
+        out, err = self.report([self.stale("gone", "111111111111")], str(path))
+        self.assertIn("could not write", err)
+        self.assertEqual(out, "")
 
 
 class TestGatherParameters(unittest.TestCase):

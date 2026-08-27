@@ -80,6 +80,13 @@ uv run scripts/update_control_tower_accounts.py --apply \
     --profile my-management-profile --yes
 ```
 
+Write the stale Account Factory records it found to a CSV file (see below):
+
+```bash
+uv run scripts/update_control_tower_accounts.py --removed-csv
+uv run scripts/update_control_tower_accounts.py --removed-csv /tmp/stale-accounts.csv
+```
+
 ### Good to know
 
 - **It only touches accounts that need it** — accounts already up to date are
@@ -87,6 +94,12 @@ uv run scripts/update_control_tower_accounts.py --apply \
   whatever still shows an update available.
 - **It won't change your accounts' settings** — the update only advances the
   baseline version. It never changes an account's email, name, SSO user or OU.
+- **It points out stale Account Factory records.** If an account was removed
+  from the organization but its Account Factory record still exists, the script
+  can't update it, says so on stderr, and notes how many it found. Add
+  `--removed-csv` (optionally with a path) to get their ids and names as a CSV
+  for clean-up. Without the flag no file is written, so a dry run really does
+  leave your working directory alone.
 
 ## `reregister_control_tower_ous.py`
 
