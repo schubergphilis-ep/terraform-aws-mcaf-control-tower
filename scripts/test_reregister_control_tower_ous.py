@@ -292,6 +292,31 @@ class TestParseSkip(unittest.TestCase):
             script.parse_skip(ROOT)
 
 
+class TestResolveVersionOverride(unittest.TestCase):
+    def test_no_flag_means_the_built_in_table_is_used(self):
+        self.assertIsNone(script.resolve_version_override(None, upgrade=True))
+        self.assertIsNone(script.resolve_version_override("", upgrade=True))
+
+    def test_the_override_is_normalized_when_upgrading(self):
+        self.assertEqual(script.resolve_version_override(" 5.0 ", upgrade=True), "5.0")
+
+    def test_without_upgrade_the_override_is_really_ignored(self):
+        # It used to reach the planner anyway, which skipped in-sync OUs with a
+        # reason quoting the override instead of the landing zone's own target.
+        with self.assertLogs(script.log, "WARNING") as logs:
+            self.assertIsNone(script.resolve_version_override("5.0", upgrade=False))
+        self.assertIn("--baseline-version is ignored", "\n".join(logs.output))
+
+    def test_an_in_sync_ou_is_still_reset_when_the_override_is_ignored(self):
+        # Landing zone 3.3 wants baseline 4.0, which this OU already has.
+        ct = FakeCT(lz_version="3.3", enabled=[enabled_baseline(SANDBOX, version="4.0")])
+        with self.assertLogs(script.log, "WARNING"):
+            override = script.resolve_version_override("5.0", upgrade=False)
+        plan = plan_for(build_plan(ct=ct, version_override=override), SANDBOX)
+        self.assertEqual(plan.action, "apply")
+        self.assertEqual([b.kind for b in plan.baselines], ["reset"])
+
+
 class TestVersionHelpers(unittest.TestCase):
     def test_versions_compare_numerically_not_lexically(self):
         self.assertLess(script.version_tuple("3.3"), script.version_tuple("4.0"))

@@ -729,6 +729,21 @@ def parse_skip(raw: str | None) -> set[str]:
     return out
 
 
+def resolve_version_override(baseline_version: str | None, upgrade: bool) -> str | None:
+    """The --baseline-version to plan with, or None to use the built-in table.
+
+    Only honoured together with --upgrade. Without --upgrade there is no upgrade
+    to retarget, and letting the override reach the planner would compare every
+    baseline against it and skip OUs that are in fact in sync.
+    """
+    if not baseline_version:
+        return None
+    if not upgrade:
+        log.warning("--baseline-version is ignored without --upgrade.")
+        return None
+    return normalize_version(baseline_version)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Sequentially reset (and optionally upgrade) the Control Tower baseline for every managed OU.",
@@ -811,14 +826,11 @@ def main(argv: list[str]) -> int:
     if completed:
         log.info("State file lists %d already-completed OU(s); they will be skipped.", len(completed))
 
-    if args.baseline_version and not args.upgrade:
-        log.warning("--baseline-version is ignored without --upgrade.")
-
     plans = build_plan(
         org, ct,
         skip=skip, target=target, completed=completed,
         upgrade=args.upgrade,
-        version_override=normalize_version(args.baseline_version) if args.baseline_version else None,
+        version_override=resolve_version_override(args.baseline_version, args.upgrade),
     )
     print_plan(plans)
 
