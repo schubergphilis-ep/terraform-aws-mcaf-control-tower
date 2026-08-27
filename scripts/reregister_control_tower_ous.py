@@ -741,7 +741,15 @@ def resolve_version_override(baseline_version: str | None, upgrade: bool) -> str
     if not upgrade:
         log.warning("--baseline-version is ignored without --upgrade.")
         return None
-    return normalize_version(baseline_version)
+    normalized = normalize_version(baseline_version)
+    if not normalized:
+        # This flag exists to override the built-in table, so quietly falling
+        # back to that table would upgrade to a version nobody asked for.
+        raise SystemExit(
+            f"--baseline-version {baseline_version!r} is not a version number "
+            "(expected digits and dots, e.g. 5.0)."
+        )
+    return normalized
 
 
 def build_parser() -> argparse.ArgumentParser:

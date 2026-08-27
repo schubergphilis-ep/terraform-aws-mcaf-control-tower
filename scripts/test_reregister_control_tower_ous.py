@@ -307,6 +307,15 @@ class TestResolveVersionOverride(unittest.TestCase):
             self.assertIsNone(script.resolve_version_override("5.0", upgrade=False))
         self.assertIn("--baseline-version is ignored", "\n".join(logs.output))
 
+    def test_an_unparsable_override_is_a_usage_error(self):
+        # Falling back to the built-in table would upgrade to a version the
+        # operator did not ask for, which an upgrade cannot be rolled back from.
+        for bad in ("v5.0", "latest", "5.0-beta"):
+            with self.subTest(baseline_version=bad):
+                with self.assertRaises(SystemExit) as ctx:
+                    script.resolve_version_override(bad, upgrade=True)
+                self.assertIn(bad, str(ctx.exception))
+
     def test_an_in_sync_ou_is_still_reset_when_the_override_is_ignored(self):
         # Landing zone 3.3 wants baseline 4.0, which this OU already has.
         ct = FakeCT(lz_version="3.3", enabled=[enabled_baseline(SANDBOX, version="4.0")])
