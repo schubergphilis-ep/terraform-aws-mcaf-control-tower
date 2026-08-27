@@ -18,7 +18,11 @@ jobs:
 
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
 
-      - name: Run unit tests
-        run: |
-          uv run scripts/test_update_control_tower_accounts.py -v
-          uv run scripts/test_reregister_control_tower_ous.py -v
+      # One step per suite, and the second runs even if the first fails, so a
+      # single push surfaces every failure instead of only the earliest one.
+      - name: Test update_control_tower_accounts.py
+        run: uv run scripts/test_update_control_tower_accounts.py -v
+
+      - name: Test reregister_control_tower_ous.py
+        if: ${{ !cancelled() }}
+        run: uv run scripts/test_reregister_control_tower_ous.py -v
