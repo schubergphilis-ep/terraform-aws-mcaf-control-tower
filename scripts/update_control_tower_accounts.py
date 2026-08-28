@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.10"
 # dependencies = [
 #     "boto3>=1.34",
 # ]
@@ -30,12 +30,12 @@ region, with Service Catalog / Account Factory admin rights.
 See --help for all options.
 """
 
-from __future__ import annotations
-
 import argparse
+import csv
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 try:
     import boto3
@@ -63,6 +63,10 @@ ACCOUNT_PARAM_KEYS = [
 # AWS allows at most 5 concurrent Account Factory updates.
 MAX_BATCH_SIZE = 5
 
+# Where a bare --removed-csv writes stale Account Factory records. Writing the
+# file is opt-in: without the flag a run never touches the filesystem.
+REMOVED_ACCOUNTS_CSV = "control_tower_removed_accounts.csv"
+
 # Provisioned product states that accept an update. Anything else
 # (UNDER_CHANGE, ERROR, ...) would fail, so those accounts are skipped.
 UPDATEABLE_STATES = {"AVAILABLE", "TAINTED"}
@@ -84,6 +88,7 @@ class Account:
     record_id: str | None = None  # Service Catalog record id of the running update
     result: str | None = None  # SUCCEEDED / FAILED / TIMED_OUT / ...
     error: str | None = None
+    removed: bool = False  # no longer in the organization (stale record)
 
     @property
     def ou(self) -> str:
@@ -120,6 +125,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--param-key", action="append", dest="param_keys", metavar="KEY",
                    help="Override which provisioning parameters are re-sent (with "
                         "their current values). Repeatable.")
+    p.add_argument("--removed-csv", nargs="?", const=REMOVED_ACCOUNTS_CSV,
+                   default=None, metavar="PATH",
+                   help="Also write every stale Account Factory record (account no "
+                        "longer in the organization) to this CSV file, overwriting "
+                        f"it. Bare --removed-csv writes {REMOVED_ACCOUNTS_CSV}; "
+                        "omit the flag and no file is written.")
     p.add_argument("--poll-interval", type=int, default=30,
                    help="Seconds between status polls while a batch is updating.")
     p.add_argument("--batch-timeout", type=int, default=3600,
@@ -220,53 +231,6 @@ def accounts_needing_update(catalog, product_id: str, latest_artifact_id: str) -
             return sorted(accounts, key=lambda a: a.name)
 
 
-def resolve_account_details(catalog, cloudformation, org, sso: SsoDirectory,
-                            accounts: list[Account]) -> None:
-    """Best effort: look up each account's id, OU ancestry, and current parameters.
-
-    The full OU chain up to the org root is kept so the OU filters also match
-    accounts in nested OUs (e.g. --exclude-ou Workloads covers Workloads/Sandbox).
-    Lookups that fail leave the detail unknown, with a warning saying why;
-    select_accounts() then skips accounts that can't be updated safely.
-    """
-    ou_names: dict[str, str] = {}
-    for account in accounts:
-        outputs: dict[str, str] = {}
-        try:
-            found = catalog.get_provisioned_product_outputs(
-                ProvisionedProductId=account.provisioned_product_id)["Outputs"]
-            outputs = {o["OutputKey"]: o["OutputValue"] for o in found if o.get("OutputKey")}
-            account.account_id = outputs.get("AccountId")
-        except (ClientError, BotoCoreError) as exc:
-            eprint(f"  ! {account.name}: could not read product outputs: {error_text(exc)}")
-        physical = account.physical_id or ""
-        if not account.account_id and len(physical) == 12 and physical.isdigit():
-            # CONTROL_TOWER_ACCOUNT-type products carry the account id as the
-            # PhysicalId (as used by AWS's own Control Tower reference code).
-            account.account_id = physical
-
-        try:
-            if account.account_id:
-                account.ou_chain = ou_ancestry(org, account.account_id, ou_names)
-        except (ClientError, BotoCoreError) as exc:
-            # e.g. ChildNotFoundException means the account is no longer in the
-            # organization, so its Account Factory record is probably stale.
-            code = error_text(exc).split(":")[0]
-            hint = (" (account no longer in the organization? Its Account Factory "
-                    "record may be stale)" if code == "ChildNotFoundException" else "")
-            eprint(f"  ! {account.name}: could not look up its OU: {error_text(exc)}{hint}")
-
-        account.parameters = gather_parameters(cloudformation, org, sso, account, outputs)
-
-
-def error_text(exc: Exception) -> str:
-    """The AWS error code and message of a ClientError, or the exception text."""
-    error = getattr(exc, "response", {}).get("Error", {})
-    if error.get("Code"):
-        return f"{error['Code']}: {error.get('Message', '')}".rstrip(": ")
-    return str(exc)
-
-
 class SsoDirectory:
     """Looks up IAM Identity Center users' first/last names by email."""
 
@@ -296,6 +260,94 @@ class SsoDirectory:
             return "", ""
         name = users[0].get("Name", {})
         return name.get("GivenName", ""), name.get("FamilyName", "")
+
+
+def resolve_account_details(catalog, cloudformation, org, sso: SsoDirectory,
+                            accounts: list[Account]) -> None:
+    """Best effort: look up each account's id, OU ancestry, and current parameters.
+
+    The full OU chain up to the org root is kept so the OU filters also match
+    accounts in nested OUs (e.g. --exclude-ou Workloads covers Workloads/Sandbox).
+    Lookups that fail leave the detail unknown, with a warning saying why;
+    select_accounts() then skips accounts that can't be updated safely.
+    """
+    ou_names: dict[str, str] = {}
+    for account in accounts:
+        outputs: dict[str, str] = {}
+        try:
+            found = catalog.get_provisioned_product_outputs(
+                ProvisionedProductId=account.provisioned_product_id)["Outputs"]
+            outputs = {
+                o["OutputKey"]: o.get("OutputValue")
+                for o in found
+                if o.get("OutputKey")
+            }
+            account.account_id = outputs.get("AccountId")
+        except (ClientError, BotoCoreError) as exc:
+            eprint(f"  ! {account.name}: could not read product outputs: {error_text(exc)}")
+        physical = account.physical_id or ""
+        if not account.account_id and len(physical) == 12 and physical.isdigit():
+            # CONTROL_TOWER_ACCOUNT-type products carry the account id as the
+            # PhysicalId (as used by AWS's own Control Tower reference code).
+            account.account_id = physical
+
+        try:
+            if account.account_id:
+                account.ou_chain = ou_ancestry(org, account.account_id, ou_names)
+        except (ClientError, BotoCoreError) as exc:
+            # e.g. ChildNotFoundException means the account is no longer in the
+            # organization, so its Account Factory record is probably stale.
+            code = error_text(exc).split(":")[0]
+            if code == "ChildNotFoundException":
+                account.removed = True
+            hint = (" (account no longer in the organization? Its Account Factory "
+                    "record may be stale)" if account.removed else "")
+            eprint(f"  ! {account.name}: could not look up its OU: {error_text(exc)}{hint}")
+
+        account.parameters = gather_parameters(cloudformation, org, sso, account, outputs)
+
+
+def write_removed_accounts_csv(accounts: list[Account], path: Path) -> None:
+    """Write the id and name of each given account to `path`, overwriting it."""
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["AccountId", "AccountName"])
+        for account in accounts:
+            writer.writerow([account.account_id or "", account.name])
+
+
+def report_removed_accounts(accounts: list[Account], csv_path: str | None) -> None:
+    """Report the stale Account Factory records found, optionally to a CSV file.
+
+    "Removed" accounts are those whose record is stale because the account is no
+    longer in the organization (Organizations answers ChildNotFoundException when
+    its OU is looked up). They are already excluded from the update itself, so
+    this is reporting only: without --removed-csv nothing is written to disk, and
+    a failure to write the file never aborts the run.
+    """
+    removed = [account for account in accounts if account.removed]
+    if not removed:
+        return
+    if not csv_path:
+        eprint(f"note: {len(removed)} stale/removed account(s) found; pass "
+               "--removed-csv to write them to a file")
+        return
+
+    path = Path(csv_path)
+    try:
+        write_removed_accounts_csv(removed, path)
+    except OSError as exc:
+        eprint(f"  ! could not write {path}: {exc}")
+        return
+    print(f"Wrote {len(removed)} stale/removed account(s) to {path}")
+
+
+def error_text(exc: Exception) -> str:
+    """The AWS error code and message of a ClientError, or the exception text."""
+    error = getattr(exc, "response", {}).get("Error", {})
+    if error.get("Code"):
+        return f"{error['Code']}: {error.get('Message', '')}".rstrip(": ")
+    return str(exc)
 
 
 def gather_parameters(cloudformation, org, sso: SsoDirectory, account: Account,
@@ -333,7 +385,7 @@ def gather_parameters(cloudformation, org, sso: SsoDirectory, account: Account,
             values["AccountEmail"] = info["Email"]
             values["AccountName"] = info["Name"]
         except (ClientError, BotoCoreError) as exc:
-            eprint(f"  ! {account.name}: could not read the account from "
+            eprint(f"  ! {account.name} {account.account_id}: could not read the account from "
                    f"Organizations: {error_text(exc)}")
 
     if account.ou_chain:
@@ -522,6 +574,9 @@ def main(argv: list[str]) -> int:
 
     accounts = accounts_needing_update(catalog, product_id, artifact_id)
     resolve_account_details(catalog, cloudformation, org, sso, accounts)
+
+    report_removed_accounts(accounts, args.removed_csv)
+
     accounts = select_accounts(accounts, args, param_keys)
     if not accounts:
         print("No accounts have an update available. Nothing to do.")

@@ -1,0 +1,8 @@
+# Bytecode from running the test suites. The repo root .gitignore is managed
+# automatically and may be overwritten, so keep this next to the scripts.
+__pycache__/
+*.py[cod]
+
+# Runtime artifacts written by the scripts when run from this directory.
+control_tower_removed_accounts.csv
+ct_reregister_state.json
